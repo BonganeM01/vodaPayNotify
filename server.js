@@ -5,7 +5,7 @@ const notifyHandler = require('./api/notify');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Important: disable body parser so getRawBody works
+// disable body parser so getRawBody works
 app.use(express.raw({ type: 'application/json' }));
 
 // Mount the exact same handler at /api/notify

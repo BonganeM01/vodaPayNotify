@@ -1,67 +1,66 @@
 // api/notify.js
 const crypto = require('crypto');
-
-module.exports = async function handler(req, res) {
+ 
+async function handler(req, res) {
+  console.log('[Notify] === WEBHOOK RECEIVED ===');
+  console.log('[Notify] Method:', req.method);
+  console.log('[Notify] URL:', req.url);
+  console.log('[Notify] Headers:', JSON.stringify(req.headers, null, 2));
+ 
   if (req.method !== 'POST') {
-    console.log('[Notify] Invalid method:', req.method);
+    console.log('[Notify] Wrong method - rejecting');
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
  
   try {
     // Get raw body
-    const rawBodyBuffer = await getRawBody(req);
-    const rawBody = rawBodyBuffer.toString('utf8');
+    let rawBody = '';
+    if (req.body) {
+      rawBody = Buffer.isBuffer(req.body) ? req.body.toString() : req.body;
+    }
  
-    // Extract relevant headers (case-insensitive lookup)
+    console.log('[Notify] Raw body length:', rawBody.length);
+    console.log('[Notify] Raw body preview:', rawBody.slice(0, 400));
+ 
     const signatureHeader = req.headers['signature'] || req.headers['Signature'];
     const clientId = req.headers['client-id'] || req.headers['Client-Id'];
     const requestTime = req.headers['request-time'] || req.headers['Request-Time'];
  
-    // Log everything for debugging
-    console.log('[Notify] FULL INCOMING HEADERS:', JSON.stringify(req.headers, null, 2));
-    console.log('[Notify] Raw body (first 500 chars):', rawBody.slice(0, 500));
-    console.log('[Notify] Extracted client-id:', clientId || '(missing)');
-    console.log('[Notify] Extracted request-time:', requestTime || '(missing)');
-    console.log('[Notify] Signature header:', signatureHeader || '(missing)');
+    console.log('[Notify] Signature:', signatureHeader ? 'PRESENT' : 'MISSING');
+    console.log('[Notify] Client-Id:', clientId || 'MISSING');
+    console.log('[Notify] Request-Time:', requestTime || 'MISSING');
  
     if (!signatureHeader) {
-      console.warn('[Notify] No signature header received — cannot validate');
-      return res.status(200).json({ success: false, message: 'No signature received from A+' });
-    }
-    if (!clientId || !requestTime) {
-      console.warn('[Notify] Missing A+ mandatory headers for callback signature check');
-      return res.status(200).json({ success: false, message: 'Missing headers: client-id/response-time' });
+      console.warn('[Notify] No signature header - cannot validate');
+      return res.status(200).json({ success: false, message: 'No signature' });
     }
  
-    // build string to sign
-    let stringToSign = `POST ${req.url}\n`;
-    stringToSign += `${clientId}.${requestTime}.${rawBody}`;
+    const stringToSign = `POST ${req.url}\n${clientId || ''}.${requestTime || ''}.${rawBody}`;
  
-    console.log('[Notify] String to sign:\n' + stringToSign);
+    console.log('[Notify] String to sign preview:', stringToSign.substring(0, 300) + '...');
  
-    // Parse signature header
+    // Parse signature
     const sigParts = signatureHeader.split(',');
-    const sigMap = sigParts.reduce((accummulator, part) => {
-      const [name, value] = part.split('=');
-      accummulator[name.trim()] = value.trim();
-      return accummulator;
+    const sigMap = sigParts.reduce((acc, part) => {
+      const [k, v] = part.split('=');
+      acc[k.trim()] = v.trim();
+      return acc;
     }, {});
  
     const algorithm = sigMap.algorithm;
     const signatureToValidate = sigMap.signature;
  
     if (algorithm !== 'RSA256' || !signatureToValidate) {
-      console.warn('[Notify] Invalid signature format:', signatureHeader);
+      console.warn('[Notify] Invalid signature format');
       return res.status(200).json({ success: false, message: 'Invalid signature format' });
     }
  
     const PUBLIC_KEY = process.env.VODAPAY_PUBLIC_KEY;
     if (!PUBLIC_KEY) {
       console.error('[Notify] Public key not configured');
-      return res.status(200).json({ success: false, message: 'Server misconfigured — public key not provided' });
+      return res.status(200).json({ success: false, message: 'Server misconfigured' });
     }
  
-    // Verify
     const publicKeyObj = crypto.createPublicKey(PUBLIC_KEY, 'utf8');
     const verifier = crypto.createVerify('RSA-SHA256');
     verifier.write(stringToSign);
@@ -75,33 +74,24 @@ module.exports = async function handler(req, res) {
  
     console.log('[Notify] Signature is VALID ✓');
  
-    // Parse payload
     let payload;
     try {
       payload = JSON.parse(rawBody);
-    } catch (err) {
-      console.error('[Notify] Invalid JSON payload:', err);
+    } catch (e) {
+      console.error('[Notify] Invalid JSON payload:', e);
       return res.status(200).json({ success: false, message: 'Invalid JSON' });
     }
  
-    console.log('[Notify] Valid webhook payload received:', JSON.stringify(payload, null, 2));
+    console.log('[Notify] Valid webhook payload received');
  
-    // Extract useful fields
     const paymentId = payload.paymentId;
     const paymentRequestId = payload.paymentRequestId;
  
-    if (!paymentId || !paymentRequestId) {
-      console.warn('[Notify] Incomplete payload');
-      return res.status(200).json({ success: true, message: 'Incomplete payload' });
-    }
+    console.log(`[Notify] Processing payment ${paymentId || 'unknown'} → Request ID: ${paymentRequestId || 'unknown'}`);
  
-    console.log(`[Notify] Processing payment ${paymentId} → Payment Request ID: ${paymentRequestId}`);
- 
-    // response to A+
-    const responseTime = new Date().toISOString().replace('Z','+02:00');
+    // Send success response back to A+
+    const responseTime = new Date().toISOString().replace('Z', '+02:00');
     const CLIENT_ID = '2020122653946739963336';
-    const NOTIFY_URL = '/api/notify';
-    const METHOD = 'POST';
  
     const successResponseBody = {
       result: {
@@ -109,58 +99,17 @@ module.exports = async function handler(req, res) {
         resultStatus: "S",
         resultMessage: "success"
       }
-    }
- 
-    // Generate signature
-    const signRes = await fetch(`https://vodapaystore.vercel.app/api/vodapay/sign`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        method: METHOD,
-        path: NOTIFY_URL,
-        headers: {
-          'Client-Id': CLIENT_ID,
-          'Response-Time': responseTime
-        },
-        body: successResponseBody
-      })
-    });
- 
-    const signPayload = await signRes.json();
- 
-    const signature = signPayload.signature;
- 
-    console.log('Whole signature payload:\n', JSON.stringify(signPayload));
- 
-    if(!signature){
-      console.warn('[Notify] Failed to generate response signature: \n', JSON.stringify(signRes))
-    }
- 
-    console.log('[Notify] Signature: \n', signature)
+    };
  
     console.log('[Notify] Sending success response back to A+');
- 
-    res.setHeader('content-type', 'application/json');
-    res.setHeader('client-id', CLIENT_ID);
-    res.setHeader('response-time', responseTime);
-    res.setHeader('signature', signature);
- 
-    console.log('[Notify] OUTGOING HEADERS:', res.getHeaders());
  
     return res.status(200).json(successResponseBody);
  
   } catch (err) {
-    console.error('[Notify] Webhook error:', err);
-    return res.status(200).json({ success: false, message: 'Processing error' });
+    console.error('[Notify] CRITICAL ERROR:', err.message);
+    console.error(err.stack);
+    return res.status(200).json({ success: false, message: 'Server error' });
   }
 }
-
-function getRawBody(req) {
-  return new Promise((resolve, reject) => {
-    let chunks = [];
-    req.on('data', c => chunks.push(c));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
  
+module.exports = handler;

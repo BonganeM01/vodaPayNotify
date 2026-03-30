@@ -90,6 +90,8 @@ async function handler(req, res) {
     console.log(`[Notify] Processing payment ${paymentId || 'unknown'} → Request ID: ${paymentRequestId || 'unknown'}`);
  
     // Send success response back to A+
+    console.log('[Notify] Preparing success response for A+');
+
     const responseTime = new Date().toISOString().replace('Z', '+02:00');
     const CLIENT_ID = '2020122653946739963336';
  
@@ -100,6 +102,30 @@ async function handler(req, res) {
         resultMessage: "success"
       }
     };
+
+    const signRes = await fetch(`https://vodapaystore.vercel.app/api/vodapay/sign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        method: 'POST',
+        path: req.url,
+        headers: {
+          'Client-Id': CLIENT_ID,
+          'Response-Time': responseTime
+        },
+        body: successResponseBody
+      })
+    });
+
+    const signPayload = await signRes.json();
+    const signature = signPayload.signature;     
+
+    if (!signature) {
+      console.warn('[Notify] Failed to generate response signature');
+      return res.status(200).json({ success: false, message: 'Failed to sign response' });
+    }
+
+    console.log('[Notify] Generated response signature:', signature);
  
     console.log('[Notify] Sending success response back to A+');
  

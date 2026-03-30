@@ -103,6 +103,13 @@ async function handler(req, res) {
  
     console.log('[Notify] Sending success response back to A+');
  
+    res.setHeader('content-type', 'application/json');
+    res.setHeader('client-id', CLIENT_ID);
+    res.setHeader('response-time', responseTime);
+    res.setHeader('signature', signature);
+
+    console.log('[Notify] OUTGOING HEADERS:', res.getHeaders());
+
     return res.status(200).json(successResponseBody);
  
   } catch (err) {

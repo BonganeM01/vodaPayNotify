@@ -95,13 +95,13 @@ async function handler(req, res) {
     const responseTime = new Date().toISOString().replace('Z', '+02:00');
     const CLIENT_ID = '2020122653946739963336';
  
-    const successResponseBody = {
+    const successResponseBody = JSON.stringify({
       result: {
         resultCode: "SUCCESS",
         resultStatus: "S",
         resultMessage: "success"
       }
-    };
+    });
 
     const signRes = await fetch(`https://vodapaystore.vercel.app/api/vodapay/sign`, {
       method: 'POST',
@@ -110,8 +110,8 @@ async function handler(req, res) {
         method: 'POST',
         path: '/api/notify',
         headers: {
-          'Client-Id': CLIENT_ID,
-          'Response-Time': responseTime
+          'client-id': CLIENT_ID,
+          'response-time': responseTime
         },
         body: successResponseBody
       })
@@ -136,7 +136,7 @@ async function handler(req, res) {
 
     console.log('[Notify] OUTGOING HEADERS:', res.getHeaders());
 
-    return res.status(200).json(successResponseBody);
+    return res.status(200).end(successResponseBody);
  
   } catch (err) {
     console.error('[Notify] CRITICAL ERROR:', err.message);

@@ -108,7 +108,7 @@ async function handler(req, res) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         method: 'POST',
-        path: req.url,
+        path: '/api/notify',
         headers: {
           'Client-Id': CLIENT_ID,
           'Response-Time': responseTime
